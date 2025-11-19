@@ -15,6 +15,9 @@ I'll introduce my idea by this directory：
 - Comparason
   - Loss and Accuracy
   - Parameters
+- Code
+  - The Structure of Project
+  - Run Code
 
 
 ## Basical Frame
@@ -38,7 +41,14 @@ The i-th layer can choose the output(x + F(x)) from the rear **i-2** layers to a
 
 ### Weight Array  
 
-After the convoluton, The **Weight Array** can be used. The output which is the same shape as the i-th layer's input must multiplied by the corresponding **F(Weight)** which from the i-th layer's **Weight Array**. *(the F is a function to realize the method of choose. If the F is f(x)=x, the F(Weight)=Weight. The choose of the function will be said in **Dynamic connection -- Activation function of Weight Array**)*  
+After the convoluton, The **Weight Array** can be used. The output which is the same shape as the i-th layer's input must multiplied by the corresponding **F(Weight)** which from the i-th layer's **Weight Array**. *(the F is a function to realize the method of choose. If the F is f(x)=x, the F(Weight)=Weight. The choose of the function will be said in **Dynamic connection -- Activation function of Weight Array**)*   
+  
+So, The i-th input is:  
+
+$${\color{red} x_i = x_{i-1}+ \sum_{k=1}^{i-2}F(w_k)\times y_k}$$  
+$${\color{red} y_k = x + f(x)}$$  
+
+*(y_k is the output of a Residual layer's)*  
 
 According the value of the **Weight**, The use of choice is obvious. If the i-th layer don't need the j-th layer's output ($j \in {1, 2, 3 ... i-2}$), the value of the corresponding **F(Weight)** will be the zero or near zero, which means the i-th layer don't need this layer's output. The F(Weight) is change with the change of the F function.  
 
@@ -56,7 +66,7 @@ It's **Sigmoid Function** and **Gauss Function**.
 
 #### Sigmoid Function  
 
-Anyway, Though I can't show the images, but I think everyone knows it *Right?* >_<|||. There're code to generate the images of the Sigmoid and the Gauss.    
+Anyway, Though I can't show the images, but I think everyone knows it *Right?*  (>_<|||). There're code to generate the images of the Sigmoid and the Gauss.    
 
 
     import numpy as np
@@ -79,4 +89,11 @@ Anyway, Though I can't show the images, but I think everyone knows it *Right?* >
     
     plt.tight_layout()
     plt.show()
+  
 
+  
+When use **Sigmoid Function** as the activation function, during the training, the **Weight** which in the **Weight Array** will become more and more convergent. At last, even the **Weight** has some changes, the **F(Weight)** won't change much leading to the connection become 'solid'.   
+
+Though the fast convergence make the net display the better convergence during training, and make the accuracy higher. But I think the rapid convergence will caused the model get into a **Local Optimal Solution**. Anyway, using **Sigmoid** as the activation function(*also can call it 'Choose Function'*) is useful accodring my experiment on CIFAR-10, CIFAR-100, Tiny-ImageNet *(also make me poor! (´Д｀))*  
+
+#### Gauss Function  
