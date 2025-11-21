@@ -1,4 +1,4 @@
-<img width="1920" height="1440" alt="DResNet_acc" src="https://github.com/user-attachments/assets/de1035cd-de55-4537-8d76-25560b1867e6" /># An-improve-on-ResNet-Introduces-dynamic-connections
+# An-improve-on-ResNet-Introduces-dynamic-connections
 When I was learning about ResNet, I realized that the shortcut connections were manually designed. This gave me an idea: why not make the connections dynamic and allow them to "grow" on their own? I call it **DResNet**. *(It's bad that I don't know the DenseNet at that time)*  
 
 So, I introduced a weight array for each layer and designed the connections based on this weight array, allowing the weights to be learned in a way that would enable the connections to "grow" autonomously. Although my teacher said it was useless, it was my first original idea during my student life, so I uploaded it to GitHub.
