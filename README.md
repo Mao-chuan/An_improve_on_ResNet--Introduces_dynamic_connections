@@ -1,10 +1,10 @@
 # An-improve-on-ResNet-Introduces-dynamic-connections
-When I was learning about ResNet, I realized that the shortcut connections were manually designed. This gave me an idea: why not make the connections dynamic and allow them to "grow" on their own? I call it **DResNet**. *(It's bad that I don't know the DenseNet at that time)*  
+When I was learning about ResNet, I realized that the shortcut connections were manually designed. This gave me an idea: why not make the connections dynamic and allow them to "grow" on their own? I call it **DResNet**. *(It's unfortunate that I didn't know the DenseNet at that time)*  
 
-So, I introduced a weight array for each layer and designed the connections based on this weight array, allowing the weights to be learned in a way that would enable the connections to "grow" autonomously. Although my teacher said it was useless, it was my first original idea during my student life, so I uploaded it to GitHub.
+So, I introduced a weight array for each layer and designed the connections based on this weight array, allowing the weights to be learned in a way that enable the connections to "grow" autonomously. Although my teacher said it was useless, it was my first original idea during my student life, so I uploaded it to GitHub.
 
-I'll introduce my idea by this directory：
-- Basical Frame
+I'll introduce my idea by this directory structure：
+- Basic Frame
   - The Base Frame
   - The Change
 - Dynamic Connection
@@ -25,53 +25,53 @@ I'll introduce my idea by this directory：
   - Run Code
 
 
-## Basical Frame
-My change is base on the ResNet frame, so you can find my net is almost like the ResNet.
+## Basic Frame
+My changes are based on the ResNet framework, so you can see that my network is almost like ResNet.
 
 ### The Base Frame
-The base frame of my net is ResNet and I don't change much of the ResNet. Base on ResNet, The layers are connected by shortcut, and beyond it, The layers nowhere in the net can freely connect other layers.Suppose the input port is the rear and the output port is front. All layers except the last two layers (because there no more layers before them) can build the connection to other layers before it.
+The basic framework of my net is ResNet and I didn't change much of it. Based on ResNet, The layers are connected by shortcuts, and beyond that, layers anywhere in the network can freely connect to other layers. Suppose the input port is at the rear and the output port is at the front. All layers except the last two layers (because there no more layers before them) can build connection to other layers before them.
 
 ### The Change
-For each layers, I give it a **Weight Array**.   
+For each layer, I assign a **Weight Array**.   
 
-Consider a n+2 layers' net, according the ResNet, it has one conv and one fc layer, so the body of it is n layers.   
+Consider a network with n+2 layers. According the ResNet, it has one conv-layer and one fc-layer, so the body has n layers.   
 
-In the n layers, we consider the i-th layer, It have a **Weight Array** which lenth is **i-2**, meaning it can freely connect the rear **i-2** layers. *(such as the 3-th layer, the layers rear it are the 1-th layer and the 2-th layer, if it want to connect the rear, it can only connect the 1-th layer.For 2-th layer, it must connect the 3-th layer. So the 3-th layer can only freely choose to connect one layer, according the format: **i-2**, it's 3-2 = 1)*  
+In the n layers, we consider the i-th layer, It has a **Weight Array** of lenth **i-2**, meaning it can freely connect the rear **i-2** layers. *(For example, the 3rd layer: the layers behind it are the 1st layer and the 2nd layer. If it wants to connect to the rear layers, it can only connect the 1st layer.For 2nd layer, it must connect to the 3rd layer. So the 3rd layer can only freely choose to connect one layer, according to the format: **i-2**, which is 3-2 = 1)*  
 
-*(Anyway, There's something about the connection method: Of cause you can naturally think out the front connection, for a layer, its output can give the front layer, it's nature **Right?** But, when realizing the code, I find that we should make the i-th layer to choose the rear layer to connect, It's more earier to realize and it's equivalent to the more nature idea.)*  
+*(Anyway, About the connection method: Of cause, you can naturally think of forward connections, where a layer's output gose to subsequent layers, that's natural, **Right?** But, when implementing the code, I found that having the i-th layer choose which rear layers to connect to is more earier to implement and is equivalent to the more natural idea.)*  
 
-The i-th layer can choose the output(x + F(x)) from the rear **i-2** layers to add into i-th layer's input. Consider the difference of shapes, I design that the rear output must through a convolutional layer if there's a difference between the output and the shape of the input, and even the both shapes are same the convolution still exist.  
+The i-th layer can choose the output (x + F(x)) from the rear **i-2** layers to add into i-th layer's input. Considering potential shape differences, I designed it so that the rear output must go through a convolutional layer if there's a difference between it's output and the input shape, and even when the shapes are the same, the convolution still exists.  
 
 ## Dynamic Connection  
 
 ### Weight Array  
 
-After the convoluton, The **Weight Array** can be used. The output which is the same shape as the i-th layer's input must multiplied by the corresponding **F(Weight)** which from the i-th layer's **Weight Array**. *(the F is a function to realize the method of choose. If the F is f(x)=x, the F(Weight)=Weight. The choose of the function will be said in **Dynamic connection -- Activation function of Weight Array**)*   
+After the convoluton, The **Weight Array** can be used. The output which has the same shape as the i-th layer's input, must be multiplied by the corresponding **F(Weight)** which from the i-th layer's **Weight Array**. *(F is a function to realize the method of choose. If F is f(x)=x, the F(Weight)=Weight. The choice of the function will be discussed in **Dynamic connection -- Activation function of Weight Array**)*   
   
 So, The i-th input is:  
 
 $${\color{red} x_i = x_{i-1}+ \sum_{k=1}^{i-2}F(w_k)\times y_k}$$  
 $${\color{red} y_k = x + f(x)}$$  
 
-*(y_k is the output of a Residual layer's)*  
+*(y_k is the output of a Residual layer)*  
 
-According the value of the **Weight**, The use of choice is obvious. If the i-th layer don't need the j-th layer's output ($j \in {1, 2, 3 ... i-2}$), the value of the corresponding **F(Weight)** will be the zero or near zero, which means the i-th layer don't need this layer's output. The F(Weight) is change with the change of the F function.  
+Based on the value of the **Weight**, The selection machanism is obvious. If the i-th layer don't need the j-th layer's output ($j \in {1, 2, 3 ... i-2}$), the value of the corresponding **F(Weight)** will be zero or near zero, which means the i-th layer don't need this layer's output. The F(Weight) changes according to the F function.  
 
 ### Activation Function for Weight Array  
 
-An appropriate Activation Function is important.  
-1. Fisrt, The range of the Function shouldn't beyond 1 or below 0 ($range \in [0,1]$). *(Eh, Maybe you can use the f(x)=x, but I don't recommand)*
-2. Second, The nature of the Function will influence the net's convergence rate and the accuracy. *(The difference will be said in next part)*  
+An appropriate **Activation Function** is important.  
+1. Fisrt, The range of the Function shouldn't exceed 1 or go below 0 ($range \in [0,1]$). *(Well, Maybe you can use the f(x)=x, but I don't recommand)*
+2. Second, The nature of the Function will influence the network's convergence rate and the accuracy. *(The differences will be discussed in the next part)*  
 
-Through the above two relus, I choose two functions finally.  
+Based on the above two relus, I finally chose two functions.  
 
-It's **Sigmoid Function** and **Gauss Function**.  
+They're the **Sigmoid Function** and **Gauss Function**.  
 
-*(I want to show the images of the Sigmoid and the Gauss, But I don't know how to display. My apology)*  
+*(I want to show the images of the Sigmoid and Gauss functions, But I don't know how to display them. My apologies)*  
 
 #### Sigmoid Function  
 
-Anyway, Though I can't show the images, but I think everyone knows it *Right?*  (>_<|||). There're code to generate the images of the Sigmoid and the Gauss.    
+Anyway, Though I can't show the images, I think everyone knows them *Right?*  (>_<|||). Here's code to generate the images of the Sigmoid and the Gauss functions.    
 
 
     import numpy as np
@@ -97,35 +97,37 @@ Anyway, Though I can't show the images, but I think everyone knows it *Right?*  
   
 
   
-When use **Sigmoid Function** as the activation function, during the training, the **Weight** which in the **Weight Array** will become more and more convergent. At last, even the **Weight** has some changes, the **F(Weight)** won't change much leading to the connection become 'solid'.   
+When using the **Sigmoid Function** as the activation function, during training, the **Weight**s in the **Weight Array** will become more and more convergent. Eventually, even if the **Weight** change somewhat, the **F(Weight)** won't change much, leading to the connections become 'solid'.   
 
-Though the fast convergence make the net display the better convergence during training, and make the accuracy higher. But I think the rapid convergence will caused the model get into a **Local Optimal Solution**. Anyway, using **Sigmoid** as the activation function(*also can call it 'Choose Function'*) is useful accodring my experiment on CIFAR-10, CIFAR-100, Tiny-ImageNet *(also make me poor and tired! (´Д｀))*  
+Though the fast convergence make the net display the better convergence during training, and make the accuracy higher. But I think the rapid convergence may cause the model to get stuck in a **Local Optimal Solution**. Anyway, using **Sigmoid** as the activation function(*which can also be called the 'Choose Function'*) is useful accodring to my experiments on CIFAR-10, CIFAR-100, Tiny-ImageNet *(also make me poor and tired! (´Д｀))*  
 
 #### Gauss Function  
 
-Consider the **Sigmoid Function** can make the convergence reach faster but have possibility of getting into local optimal soulution. So, I conceive a new function, **Gauss Function**. The formation of **Gauss Function** is: **$y=e^{-kx^2}$**.  
+Considering that the **Sigmoid Function** can make convergence faster but has the possibility of getting stuck in local optimal soulution. So, I conceived a new function, **Gauss Function**. The formula for the **Gauss Function** is: **$y=e^{-kx^2}$**.  
 
-If you have watched the image of the **Gauss Function**, you will find that the low proporation of the high value dependent variables is perfectly accord with the dynamic connection *(Of cause, it's my opinion.)*. The function's image is sharp making it can give the net more chances to jump out of the local optimal solution.  
+If you have seen the image of the **Gauss Function**, you will find that the low probability of high-valued dependent variables perfectly accords with the dynamic connection concept *(Eh, it's just my opinion.)*. The function's sharp profile gives the networks more opportunities to jump out of the local optimal solutions.  
 
-But, the disadvantages are obvious, The net's convergence procedure may be **fluctuation-intense**. *(Eh, When I write here, I haven't do the Gauss function experiment. It's expect to be finished when I writing the **Comparason-Parameters-Gauss Function or -Loss and Accuracy**)*.  
+And, The Gauss function's parameter of '*k*' is important, because it is trainable in my idea. The '*k*' can make the nwtwork to disjust the ability of the '*sharp*'.  
+
+But, the disadvantages are obvious, The network's convergence procedure may be **highly fluctuating**. *(Eh, When I write here, I haven't done the Gauss function experiment. It's expect to be finished when I have done the **Comparason-Parameters-Gauss Function or -Loss and Accuracy**)*.  
 
 ## Comparason  
 
 ### Loss and Accuracy  
 
-The each models' independent training result images are stored in **Result/Tiny ImageNet/{model}**. Each file has two images of **{model}_acc** and **{model}_loss**. The model below is 18-layers model, which has one conv-layer,18-layer body and one fc-layer.  
+Each model's independent training result images are stored in **Result/Tiny ImageNet/{model}**. Each file has two images: **{model}_acc** and **{model}_loss**. The model below is an 18-layer model, which has one conv-layer, an 18-layer body and one fc-layer.  
 
 #### All models' comparason  
 
-In **Result/Tiny ImageNet**, there're two pictures of **acc.png** and **loss.png**.  
+In **Result/Tiny ImageNet**, there're two pictures: **acc.png** and **loss.png**.  
 
 ##### Loss and Acc  
 
-In **loss.png**, the loss of ResNet and my net called **DResNet** goes down fastly, and then goes up near the 25-epoch. And, when the loss is convergent, the ResNet's loss is higher than the CNN, but the DResNet is lower than the ResNet, which means the DResNet can be more convergence after training and ease the problem of the high after-convergent loss.  
+In **loss.png**, the loss of ResNet and my network called **DResNet** goes down quickly, and then increase around epoch 25. When the loss converges, the ResNet's loss is higher than CNN's, but DResNet's is lower than ResNet's, which means DResNet can achieve better convergence after training and ease the problem of high post-convergence loss.  
 
 <img width="1920" height="1440" alt="loss" src="https://github.com/user-attachments/assets/488fb8b8-ab64-4605-82ec-26818217aab3" />  
 
-In **acc.png**, we can find that the accuracy of the ResNet and the DResNet both are higher than the CNN. And, at 25 epochs, the DResNet has a better convergence performance and the higher accuracy.  
+In **acc.png**, we can see that the accuracy of ResNet and DResNet both is higher than CNN's. At 25 epochs, DResNet shows better convergence performance and higher accuracy.  
 
 <img width="1920" height="1440" alt="acc" src="https://github.com/user-attachments/assets/6673dfc3-36f1-4c8c-ae0c-16bfa0915882" />  
 
@@ -133,11 +135,11 @@ In **acc.png**, we can find that the accuracy of the ResNet and the DResNet both
 
 ##### Train and test, val  
 
-During the training, Three models are getting higher after the test accuracy become stable. But, the CNN' train acc curve is grow slowly, and the value stops at near **70%**. However, the ResNet and the DResNet stop at 85% and 100%. Eh, the overfitting ability of two models may be *Good?*  
+During training, All three models show increasing accuracy until the test accuracy stabilizes. But CNN's train acc curve grows slowly and stops at around **70%**. In contarst, ResNet and DResNet stop at 85% and 100% respectively. Well, the overfitting capability of these two models might be *Good?*  
 
 ### Parameters  
 
-The parameters of CNN is 11101512, and the parameters of ResNet is 11627272, and the parameters of DResNet is 12320932. Though the dynamic connection is $O(n^2)$, the increment is not much.  
+The parameters of CNN is 11,101,512, and the parameters of ResNet is 11,627,272, and the parameters of DResNet is 12,320,932. Although the dynamic connections have $O(n^2)$ complexity, the parameter increase is not substantial.  
 
 ### Activation Function  
 
@@ -147,10 +149,10 @@ The choice of activation function can cause a big difference, *I guess*. If I ha
 
 ### The Structure of Project  
 
-The Project will design as three files: **Run.py**, **Model (folder)**, **Result (folder)**.  
+The Project is structured as three components: **Run.py**, **Model (folder)**, **Result (folder)**.  
 
-The models' code will put in **Model** folder. And the **Result** wil put entire pictures of three models, and the total comparason of **Accuracy** and **Loss**. You can run the code with **Run**.  
+The models' code is placed in **Model** folder. And the **Result** contains all the images for the three models, and the overall comparison of **Accuracy** and **Loss**. You can run the code using **Run.py**.  
 
 ### Run Code  
 
-The interface of the comparason is **Run.py**, you can run the code in this file. *(I don't know how to use the Commmand Line to give more choice for users, So I give a main interface directly)*
+The comparison interface is in **Run.py**, you can run the code in this file. *(I don't know how to use the Commmand Line to provide more options for users, So I give a main interface directly)*
