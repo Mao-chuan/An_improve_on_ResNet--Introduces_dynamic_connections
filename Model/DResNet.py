@@ -1,144 +1,255 @@
 import torch
-import torch.nn.functional as F
 from torch import nn
+import torch.nn.functional as F
+from typing import List, Tuple, Optional
 
+class DynamicGate(nn.Module):
+    def __init__(self, forward_layers: int):
+        super().__init__()
+        self.forward_layers = forward_layers
+        self.weights = nn.Parameter(torch.ones(forward_layers))
+
+    def forward(self, x: torch.Tensor) -> List[Optional[torch.Tensor]]:
+        if self.forward_layers == 0:
+            return []
+
+        gate_weights = torch.sigmoid(self.weights)  # [forward_layers]
+
+        forward_outputs = []
+        for i in range(self.forward_layers):
+            weighted_x = x * gate_weights[i]
+            forward_outputs.append(weighted_x)
+
+        return forward_outputs
+
+class AdaptiveConnection(nn.Module):
+
+    def __init__(self, in_channels, out_channels, target_spatial_size):
+        super().__init__()
+        self.target_spatial_size = target_spatial_size
+
+        if in_channels != out_channels:
+            self.channel_adapter = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+        else:
+            self.channel_adapter = nn.Identity()
+
+        # print(target_spatial_size)
+
+    def forward(self, x):
+        x = self.channel_adapter(x)
+
+        # if(x.size(2) != self.target_spatial_size[0] or x.size(3) != self.target_spatial_size[1]):print(x.size,self.target_spatial_size,"True")
+        # else:print(x.size,self.target_spatial_size,"False")
+        if x.size(2) != self.target_spatial_size[0] or x.size(3) != self.target_spatial_size[1]:
+            if self.target_spatial_size[0] > 0 and self.target_spatial_size[1] > 0:
+                x = F.interpolate(
+                    x,
+                    size=self.target_spatial_size,
+                    mode='bilinear',
+                    align_corners=False
+                )
+            else:
+                valid_size = (max(1, self.target_spatial_size[0]), max(1, self.target_spatial_size[1]))
+                x = F.adaptive_avg_pool2d(x, valid_size)
+
+        return x
 class DResNetBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, stride=1, sequence=0):  # sequence start with 1
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 layer_idx: int,
+                 total_layers: int,
+                 stride: int = 1):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
+        self.layer_idx = layer_idx
+        self.total_layers = total_layers
+
+        self.forward_layers = total_layers - layer_idx - 1
+
+        self.dynamic_gate = DynamicGate(self.forward_layers) if self.forward_layers > 0 else None
+
+        self.adapters = nn.ModuleDict()
+
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
+                               stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
 
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
+                               stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
 
         self.downsample = None
-
         if stride != 1 or in_channels != out_channels:
-            self.downsample = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0)
-            self.bn3 = nn.BatchNorm2d(out_channels)
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1,
+                          stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
 
-        self.__can_append = sequence > 2
-        if self.__can_append:
-            # self.__can_append = True
-            self.cite_convolutions = nn.ModuleList()
-            self.cite_adaptive_shape = nn.ModuleList()
-            self.cite_bns = nn.ModuleList()
+        self.relu = nn.ReLU()
 
-    def cite_append(self, x, cite):
-        if self.__can_append:
-            shape = x.shape
-            out_channel = shape[1]
-            for i in cite:
-                if i is not None:
-                    in_channel = i.shape[1]
-                    self.cite_convolutions.append(nn.Conv2d(in_channel, out_channel, padding=0, stride=1, kernel_size=1))
-                    self.cite_adaptive_shape.append(nn.AdaptiveAvgPool2d((shape[-2],shape[-1])))
-                    self.cite_bns.append(nn.BatchNorm2d(out_channel))
-                else:
-                    continue
-            self.__can_append = False
+    def add_adapter(self, source_layer: int, in_channels: int, spatial_size: Tuple[int, int]):
+        adapter_name = f'adapter_{source_layer}'
+        # print(spatial_size)
+        self.adapters[adapter_name] = AdaptiveConnection(
+            in_channels, self.conv1.in_channels, spatial_size
+        )
 
-    def forward(self, x, cite: list):
-        if self.__can_append:
-           self.cite_append(x, cite)
+    def forward(self,
+                x: torch.Tensor,
+                previous_outputs: List[Tuple[int, torch.Tensor]]) -> Tuple[
+        torch.Tensor, List[Tuple[int, torch.Tensor]]]:
+        combined_input = x.clone()
 
-        if not self.__can_append:
-            for idx,c in enumerate(cite):
-                if c is not None:
-                    dealed_cite = self.cite_convolutions[idx](c)
-                    dealed_cite = self.cite_adaptive_shape[idx](dealed_cite)
-                    dealed_cite = self.cite_bns[idx](dealed_cite)
+        for source_layer, prev_output in previous_outputs:
+            adapter_name = f'adapter_{source_layer}'
+            if adapter_name in self.adapters:
+                # print(prev_output.shape,combined_input.shape)
+                # raise ValueError("!!!")
+                adapted_output = self.adapters[adapter_name](prev_output)  # 64
+                # print(adapted_output.shape)
+                combined_input = combined_input + adapted_output  # 64 32
 
-                    x = x + dealed_cite
-
-                else:
-                    continue
-
-        # x = x + f(cite)
-
-        inputs = x
-
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu(x)
-
-        x = self.conv2(x)
-        x = self.bn2(x)
-
+        identity = combined_input
         if self.downsample is not None:
-            inputs = self.downsample(inputs)
-            inputs = self.bn3(inputs)
+            identity = self.downsample(identity)
 
-        out = x + inputs
-        out = F.relu(out)
+        out = self.conv1(combined_input)
+        out = self.bn1(out)
+        out = self.relu(out)
 
-        return out
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        out = out + identity
+        current_output = self.relu(out)
+
+        forward_outputs = []
+        if self.dynamic_gate is not None:
+            gate_outputs = self.dynamic_gate(current_output)
+            for i, gate_out in enumerate(gate_outputs):
+                if gate_out is not None:
+                    target_layer = self.layer_idx + i + 1
+                    forward_outputs.append((target_layer, gate_out))
+
+        return current_output, forward_outputs
+
 
 class DResNet(nn.Module):
-    def __init__(self, num_class=200, dropout_rate=0.2):
+
+    def __init__(self,
+                 num_classes: int = 200,
+                 dropout_rate: float = 0.2):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
+        self.layer_config = [
+            # (in_channels, out_channels, stride)
+            (64, 64, 1),  # block1
+            (64, 64, 1),  # block2
+            (64, 128, 2),  # block3
+            (128, 128, 1),  # block4
+            (128, 256, 2),  # block5
+            (256, 256, 1),  # block6
+            (256, 512, 2),  # block7
+            (512, 512, 1),  # block8
+        ]
+
+        self.total_layers = len(self.layer_config)
+
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.relu = nn.ReLU()
+        # self.maxpool = nn.MaxPool2d(kernel_size=3,stride=2,padding=1)
 
-        self.block1 = DResNetBlock(64, 64, sequence=1)
-        self.block2 = DResNetBlock(64, 64, stride=1, sequence=2)
-        self.block3 = DResNetBlock(64, 128, stride=2, sequence=3)
-        self.block4 = DResNetBlock(128, 128, stride=1, sequence=4)
-        self.block5 = DResNetBlock(128, 256, stride=2, sequence=5)
-        self.block6 = DResNetBlock(256, 256, stride=1, sequence=6)
-        self.block7 = DResNetBlock(256, 512, stride=2, sequence=7)
-        self.block8 = DResNetBlock(512, 512, stride=1, sequence=8)
+        self.blocks = nn.ModuleList()
+        self.layer_info = []
 
-        self.avg = nn.AdaptiveAvgPool2d((1, 1))
+        spatial_sizes = []
+
+        current_size = 64
+        for _, _, stride in self.layer_config:
+            spatial_sizes.append((current_size, current_size))
+            if stride > 1:
+                current_size = current_size // 2
+
+        for i, (in_ch, out_ch, stride) in enumerate(self.layer_config):
+            block = DResNetBlock(
+                in_channels=in_ch,
+                out_channels=out_ch,
+                layer_idx=i,
+                total_layers=self.total_layers,
+                stride=stride
+            )
+
+            self.blocks.append(block)
+            self.layer_info.append({
+                'channels': out_ch,
+                'spatial_size': spatial_sizes[i],
+                'layer_idx': i
+            })
+
+        self._setup_adapters()
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc = nn.Linear(512, num_class)
+        self.fc = nn.Linear(512, num_classes)
 
-        self.outputs = [None for _ in range(6)]  # store the output of each layer in each batch
+        self._initialize_weights()
 
-        self.weight = nn.Parameter(torch.eye(6) + 0.1 * torch.rand(6, 6) * torch.tril(torch.ones(6, 6), diagonal=-1))
+    def _setup_adapters(self):
+        for i, block in enumerate(self.blocks):
+            current_info = self.layer_info[i]
 
-    def forward(self, x):
-        self.outputs = [None for _ in range(6)]  # reset the output of last batch
+            for j in range(i):
+                source_info = self.layer_info[j]
+                block.add_adapter(
+                    source_layer=source_info['layer_idx'],
+                    in_channels=source_info['channels'],
+                    spatial_size=current_info['spatial_size']
+                )
 
-        B = x.shape[0]
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
 
         x = self.conv1(x)
         x = self.bn1(x)
-        x = F.relu(x)
-        x = self.maxpool(x)
+        x = self.relu(x)
+        # x = self.maxpool(x)
 
-        x = self.block1(x, self.outputs)
-        self.outputs[0] = x
+        all_outputs = [None] * self.total_layers
+        forward_buffer = [[] for _ in range(self.total_layers)]
 
-        x = self.block2(x, self.outputs)
-        self.outputs[1] = x
+        for i, block in enumerate(self.blocks):
+            previous_outputs = []
+            for source_layer, output_tensor in forward_buffer[i]:
+                previous_outputs.append((source_layer, output_tensor))
 
-        x = self.block3(x, [o * w for o, w in zip(self.outputs,self.weight[0])])
-        self.outputs[2] = x
+            forward_buffer[i] = []
 
-        x = self.block4(x, [o * w for o, w in zip(self.outputs,self.weight[1])])
-        self.outputs[3] = x
+            current_output, new_forward_outputs = block(x, previous_outputs)
 
-        x = self.block5(x, [o * w for o, w in zip(self.outputs,self.weight[2])])
-        self.outputs[4] = x
+            all_outputs[i] = current_output
+            x = current_output
 
-        x = self.block6(x, [o * w for o, w in zip(self.outputs,self.weight[3])])
-        self.outputs[5] = x
+            for target_layer, output_tensor in new_forward_outputs:
+                if target_layer < self.total_layers:
+                    forward_buffer[target_layer].append([i, output_tensor])
 
-        x = self.block7(x, [o * w for o, w in zip(self.outputs,self.weight[4])])
-        # self.outputs[6] = x
-
-        x = self.block8(x, [o * w for o, w in zip(self.outputs,self.weight[5])])
-        # self.outputs[7] = x
-
-        x = self.avg(x)
-
-        x = x.view(B, -1)
-
+        x = self.avgpool(x)
+        x = x.view(batch_size, -1)
         x = self.dropout(x)
         x = self.fc(x)
 
